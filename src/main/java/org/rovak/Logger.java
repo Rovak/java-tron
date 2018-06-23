@@ -37,10 +37,9 @@ public class Logger {
     Log(rewards);
   }
 
-  public static void Log(Event event) {
+  public static <T extends Event> void Log(T event) {
 
     try {
-
 
       String logMessage = Args.getInstance().jsonSerialize.serialize(event);
 
