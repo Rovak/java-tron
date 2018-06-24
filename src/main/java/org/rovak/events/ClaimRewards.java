@@ -10,6 +10,7 @@ import java.util.List;
 
 public class ClaimRewards extends Event {
 
+  @Getter
   private String eventType = "claim_rewards";
 
   @Getter

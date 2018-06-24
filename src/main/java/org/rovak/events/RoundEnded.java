@@ -8,5 +8,7 @@ import org.tron.protos.Protocol;
 import java.util.List;
 
 public class RoundEnded extends Event {
+
+  @Getter
   private String eventType = "round_ended";
 }

@@ -45,10 +45,10 @@ public class Logger {
 
       FileUtils.writeStringToFile(
               new File("vote-log.txt"),
-              logMessage,
+              logMessage + "\n",
               Charset.forName("utf-8"),
               true);
-    } catch (IOException e) {
+    } catch (Exception e) {
       e.printStackTrace();
     }
   }
