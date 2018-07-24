@@ -8,11 +8,11 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.Optional;
 import java.util.Set;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.collections4.CollectionUtils;
 import org.joda.time.DateTime;
 import org.tron.common.utils.ByteArray;
 import org.tron.common.utils.StringUtil;
@@ -243,7 +243,6 @@ public class WitnessController {
   private Map<ByteString, Long> countVote(VotesStore votesStore) {
     final Map<ByteString, Long> countWitness = Maps.newHashMap();
     org.tron.core.db.common.iterator.DBIterator dbIterator = votesStore.getIterator();
-    AccountStore accountStore = this.manager.getAccountStore();
 
     long sizeCount = 0;
     while (dbIterator.hasNext()) {
@@ -253,43 +252,34 @@ public class WitnessController {
 //      logger.info("there is account ,account address is {}",
 //          account.createReadableString());
 
-      Optional<Long> sum = votes.getNewVotes().stream().map(vote -> vote.getVoteCount())
-          .reduce((a, b) -> a + b);
-      if (sum.isPresent()) {
-        AccountCapsule account = accountStore.get(votes.createDbKey());
-        if (sum.get() <= account.getTronPower()) {
-          // TODO add vote reward
-          // long reward = Math.round(sum.get() * this.manager.getDynamicPropertiesStore()
-          //    .getVoteRewardRate());
-          //account.setBalance(account.getBalance() + reward);
-          //accountStore.put(account.createDbKey(), account);
-          votes.getOldVotes().forEach(vote -> {
-            //TODO validate witness //active_witness
-            ByteString voteAddress = vote.getVoteAddress();
-            long voteCount = vote.getVoteCount();
-            if (countWitness.containsKey(voteAddress)) {
-              countWitness.put(voteAddress, countWitness.get(voteAddress) - voteCount);
-            } else {
-              countWitness.put(voteAddress, -voteCount);
-            }
-          });
-          votes.getNewVotes().forEach(vote -> {
-            //TODO validate witness //active_witness
-            ByteString voteAddress = vote.getVoteAddress();
-            long voteCount = vote.getVoteCount();
-            if (countWitness.containsKey(voteAddress)) {
-              countWitness.put(voteAddress, countWitness.get(voteAddress) + voteCount);
-            } else {
-              countWitness.put(voteAddress, voteCount);
-            }
-          });
+      // TODO add vote reward
+      // long reward = Math.round(sum.get() * this.manager.getDynamicPropertiesStore()
+      //    .getVoteRewardRate());
+      //account.setBalance(account.getBalance() + reward);
+      //accountStore.put(account.createDbKey(), account);
+
+      votes.getOldVotes().forEach(vote -> {
+        //TODO validate witness //active_witness
+        ByteString voteAddress = vote.getVoteAddress();
+        long voteCount = vote.getVoteCount();
+        if (countWitness.containsKey(voteAddress)) {
+          countWitness.put(voteAddress, countWitness.get(voteAddress) - voteCount);
         } else {
-          logger.info(
-              "account" + account.createReadableString() + ",tronPower[" + account.getTronPower()
-                  + "] < voteSum["
-                  + sum.get() + "]");
+          countWitness.put(voteAddress, -voteCount);
         }
-      }
+      });
+      votes.getNewVotes().forEach(vote -> {
+        //TODO validate witness //active_witness
+        ByteString voteAddress = vote.getVoteAddress();
+        long voteCount = vote.getVoteCount();
+        if (countWitness.containsKey(voteAddress)) {
+          countWitness.put(voteAddress, countWitness.get(voteAddress) + voteCount);
+        } else {
+          countWitness.put(voteAddress, voteCount);
+        }
+      });
+
+
       sizeCount++;
       votesStore.delete(next.getKey());
     }
@@ -313,6 +303,7 @@ public class WitnessController {
       logger.info("No vote, no change to witness.");
     } else {
       List<ByteString> currentWits = getActiveWitnesses();
+
       List<ByteString> newWitnessAddressList = new ArrayList<>();
       witnessStore.getAllWitnesses().forEach(witnessCapsule -> {
         newWitnessAddressList.add(witnessCapsule.getAddress());
@@ -334,11 +325,9 @@ public class WitnessController {
               "witnessAccount[" + StringUtil.createReadableString(address) + "] not exists");
         } else {
           witnessCapsule.setVoteCount(witnessCapsule.getVoteCount() + voteCount);
-          witnessCapsule.setIsJobs(false);
           witnessStore.put(witnessCapsule.createDbKey(), witnessCapsule);
           logger.info("address is {}  ,countVote is {}", witnessCapsule.createReadableString(),
               witnessCapsule.getVoteCount());
-
         }
       });
 
@@ -355,18 +344,31 @@ public class WitnessController {
         payStandbyWitness(newWitnessAddressList);
       }
 
-      getActiveWitnesses().forEach(address -> {
-        WitnessCapsule witnessCapsule = getWitnesseByAddress(address);
-        witnessCapsule.setIsJobs(true);
-        witnessStore.put(witnessCapsule.createDbKey(), witnessCapsule);
-      });
+      List<ByteString> newWits = getActiveWitnesses();
+      if (witnessSetChanged(currentWits, newWits)) {
+        currentWits.forEach(address -> {
+          WitnessCapsule witnessCapsule = getWitnesseByAddress(address);
+          witnessCapsule.setIsJobs(false);
+          witnessStore.put(witnessCapsule.createDbKey(), witnessCapsule);
+        });
+
+        newWits.forEach(address -> {
+          WitnessCapsule witnessCapsule = getWitnesseByAddress(address);
+          witnessCapsule.setIsJobs(true);
+          witnessStore.put(witnessCapsule.createDbKey(), witnessCapsule);
+        });
+      }
 
       logger.info(
           "updateWitness,before:{} ", StringUtil.getAddressStringList(currentWits)
-              + ",\nafter:{} " + StringUtil.getAddressStringList(getActiveWitnesses()));
+              + ",\nafter:{} " + StringUtil.getAddressStringList(newWits));
     }
-
   }
+
+  private static boolean witnessSetChanged(List<ByteString> list1, List<ByteString> list2) {
+    return !CollectionUtils.isEqualCollection(list1, list2);
+  }
+
 
   public int calculateParticipationRate() {
     return manager.getDynamicPropertiesStore().calculateFilledSlotsCount();
@@ -412,6 +414,7 @@ public class WitnessController {
         manager.getAccountStore().put(accountCapsule.createDbKey(), accountCapsule);
       }
     }
+
   }
 
 }

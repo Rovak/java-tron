@@ -23,7 +23,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.Properties;
-import java.util.Random;
 import java.util.stream.Collectors;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -35,7 +34,6 @@ import org.spongycastle.util.encoders.Hex;
 import org.springframework.stereotype.Component;
 import org.tron.common.crypto.ECKey;
 import org.tron.common.overlay.discover.node.Node;
-import org.tron.core.Constant;
 import org.tron.common.utils.ByteArray;
 import org.tron.core.Constant;
 import org.tron.core.Wallet;
@@ -122,7 +120,11 @@ public class Args {
 
   @Getter
   @Setter
-  private List<Node> nodeActive;
+  private List<Node> activeNodes;
+
+  @Getter
+  @Setter
+  private List<Node> passiveNodes;
 
   @Getter
   @Setter
@@ -131,6 +133,10 @@ public class Args {
   @Getter
   @Setter
   private int nodeMaxActiveNodes;
+
+  @Getter
+  @Setter
+  private int nodeMaxActiveNodesWithSameIp;
 
   @Getter
   @Setter
@@ -168,14 +174,22 @@ public class Args {
   @Setter
   private String p2pNodeId;
 
+  //If you are running a solidity node for java tron, this flag is set to true
   @Getter
   @Setter
-  //If you are running a solidity node for java tron, this flag is set to true
   private boolean solidityNode = false;
 
   @Getter
   @Setter
   private int rpcPort;
+
+  @Getter
+  @Setter
+  private int fullNodeHttpPort;
+
+  @Getter
+  @Setter
+  private int solidityHttpPort;
 
   @Getter
   @Setter
@@ -271,9 +285,11 @@ public class Args {
     INSTANCE.nodeDiscoveryEnable = false;
     INSTANCE.nodeDiscoveryPersist = false;
     INSTANCE.nodeConnectionTimeout = 0;
-    INSTANCE.nodeActive = Collections.emptyList();
+    INSTANCE.activeNodes = Collections.emptyList();
+    INSTANCE.passiveNodes = Collections.emptyList();
     INSTANCE.nodeChannelReadTimeout = 0;
-    INSTANCE.nodeMaxActiveNodes = 0;
+    INSTANCE.nodeMaxActiveNodes = 30;
+    INSTANCE.nodeMaxActiveNodesWithSameIp = 2;
     INSTANCE.minParticipationRate = 0;
     INSTANCE.nodeListenPort = 0;
     INSTANCE.nodeDiscoveryBindIp = "";
@@ -283,6 +299,8 @@ public class Args {
     //INSTANCE.syncNodeCount = 0;
     INSTANCE.nodeP2pVersion = 0;
     INSTANCE.rpcPort = 0;
+    INSTANCE.fullNodeHttpPort = 0;
+    INSTANCE.solidityHttpPort = 0;
     INSTANCE.maintenanceTimeInterval = 0;
     INSTANCE.tcpNettyWorkThreadNum = 0;
     INSTANCE.udpNettyWorkThreadNum = 0;
@@ -405,14 +423,19 @@ public class Args {
         config.hasPath("node.connection.timeout") ? config.getInt("node.connection.timeout") * 1000
             : 0;
 
-    INSTANCE.nodeActive = nodeActive(config);
+    INSTANCE.activeNodes = getNodes(config, "node.active");
+
+    INSTANCE.passiveNodes = getNodes(config, "node.passive");
 
     INSTANCE.nodeChannelReadTimeout =
         config.hasPath("node.channel.read.timeout") ? config.getInt("node.channel.read.timeout")
             : 0;
 
     INSTANCE.nodeMaxActiveNodes =
-        config.hasPath("node.maxActiveNodes") ? config.getInt("node.maxActiveNodes") : 0;
+        config.hasPath("node.maxActiveNodes") ? config.getInt("node.maxActiveNodes") : 30;
+
+    INSTANCE.nodeMaxActiveNodesWithSameIp =
+        config.hasPath("node.maxActiveNodesWithSameIp") ? config.getInt("node.maxActiveNodesWithSameIp") : 2;
 
     INSTANCE.minParticipationRate =
         config.hasPath("node.minParticipationRate") ? config.getInt("node.minParticipationRate")
@@ -439,6 +462,12 @@ public class Args {
 
     INSTANCE.rpcPort =
         config.hasPath("node.rpc.port") ? config.getInt("node.rpc.port") : 50051;
+
+    INSTANCE.fullNodeHttpPort =
+        config.hasPath("node.http.fullNodePort") ? config.getInt("node.http.fullNodePort") : 8090;
+
+    INSTANCE.solidityHttpPort =
+        config.hasPath("node.http.solidityPort") ? config.getInt("node.http.solidityPort") : 8091;
 
     INSTANCE.rpcThreadNum =
         config.hasPath("node.rpc.thread") ? config.getInt("node.rpc.thread")
@@ -486,6 +515,8 @@ public class Args {
         config.hasPath("node.walletExtensionApi") && config.getBoolean("node.walletExtensionApi");
 
     initBackupProperty(config);
+
+    logConfig();
   }
 
 
@@ -547,12 +578,12 @@ public class Args {
     return this.outputDirectory;
   }
 
-  private static List<Node> nodeActive(final com.typesafe.config.Config config) {
-    if (!config.hasPath("node.active")) {
+  private static List<Node> getNodes(final com.typesafe.config.Config config, String path) {
+    if (!config.hasPath(path)) {
       return Collections.EMPTY_LIST;
     }
     List<Node> ret = new ArrayList<>();
-    List<String> list = config.getStringList("node.active");
+    List<String> list = config.getStringList(path);
     for (String configString : list) {
       Node n = Node.instanceOf(configString);
       ret.add(n);
@@ -675,5 +706,26 @@ public class Args {
         ? config.getInt("node.backup.port") : 10001;
     INSTANCE.backupMembers = config.hasPath("node.backup.members")
         ? config.getStringList("node.backup.members") : new ArrayList<>();
+  }
+
+  private static void logConfig(){
+    Args args = getInstance();
+    logger.info("\n");
+    logger.info("************************ Net config ************************");
+    logger.info("P2P version: {}", args.getNodeP2pVersion());
+    logger.info("Bind IP: {}", args.getNodeDiscoveryBindIp());
+    logger.info("External IP: {}", args.getNodeExternalIp());
+    logger.info("Listen port: {}", args.getNodeListenPort());
+    logger.info("Discover enable: {}", args.isNodeDiscoveryEnable());
+    logger.info("Active node size: {}", args.getActiveNodes().size());
+    logger.info("Passive node size: {}", args.getPassiveNodes().size());
+    logger.info("Seed node size: {}", args.getSeedNode().getIpList().size());
+    logger.info("Max connection: {}", args.getNodeMaxActiveNodes());
+    logger.info("Max connection with same IP: {}", args.getNodeMaxActiveNodesWithSameIp());
+    logger.info("************************ Backup config ************************");
+    logger.info("Backup listen port: {}", args.getBackupPort());
+    logger.info("Backup member size: {}", args.getBackupMembers().size());
+    logger.info("Backup priority: {}", args.getBackupPriority());
+    logger.info("\n");
   }
 }

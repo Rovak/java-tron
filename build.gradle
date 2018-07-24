@@ -151,6 +151,12 @@ dependencies {
     compile 'com.googlecode.cqengine:cqengine:2.12.4'
     compile group: 'com.google.api.grpc', name: 'googleapis-common-protos', version: '0.0.3'
 
+    // http
+    compile 'org.eclipse.jetty:jetty-server:9.4.11.v20180605'
+    compile 'org.eclipse.jetty:jetty-servlet:9.4.11.v20180605'
+    compile 'com.alibaba:fastjson:1.2.47'
+
+    // end http
     compile group: 'commons-io', name: 'commons-io', version: '2.6'
 
     compile group: 'com.owlike', name: 'genson', version: '1.4'

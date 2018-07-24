@@ -54,6 +54,7 @@ import org.tron.core.config.Parameter.NodeConstant;
 import org.tron.core.config.args.Args;
 import org.tron.core.exception.BadBlockException;
 import org.tron.core.exception.BadTransactionException;
+import org.tron.core.exception.NonCommonBlockException;
 import org.tron.core.exception.StoreException;
 import org.tron.core.exception.TraitorPeerException;
 import org.tron.core.exception.TronException;
@@ -180,7 +181,7 @@ public class NodeImpl extends PeerConnectionDelegate implements Node {
       send.forEach((peer, ids) ->
           ids.forEach((key, value) -> {
             if (key.equals(InventoryType.BLOCK)) {
-              value.sort(Comparator.comparingDouble(value1 -> value1.getBlockNum()));
+              value.sort(Comparator.comparingLong(value1 -> new BlockId(value1).getNum()));
             }
             peer.sendMessage(new InventoryMessage(value, key));
           }));
@@ -190,7 +191,7 @@ public class NodeImpl extends PeerConnectionDelegate implements Node {
       send.forEach((peer, ids) ->
           ids.forEach((key, value) -> {
             if (key.equals(InventoryType.BLOCK)) {
-              value.sort(Comparator.comparingDouble(value1 -> value1.getBlockNum()));
+              value.sort(Comparator.comparingLong(value1 -> new BlockId(value1).getNum()));
             }
             peer.sendMessage(new FetchInvDataMessage(value, key));
           }));
@@ -247,8 +248,6 @@ public class NodeImpl extends PeerConnectionDelegate implements Node {
       return new Thread(r, "broad-msg-");
     }
   });
-
-  private HashMap<Sha256Hash, Long> badAdvObj = new HashMap<>(); //TODO:need auto erase oldest obj
 
   //blocks we requested but not received
 
@@ -618,8 +617,7 @@ public class NodeImpl extends PeerConnectionDelegate implements Node {
             + "unSyncNum: %d\n"
             + "blockWaitToProc: %d\n"
             + "blockJustReceived: %d\n"
-            + "syncBlockIdWeRequested: %d\n"
-            + "badAdvObj: %d\n",
+            + "syncBlockIdWeRequested: %d\n",
         del.getHeadBlockId().getNum(),
         advObjToSpread.size(),
         advObjToFetch.size(),
@@ -627,8 +625,7 @@ public class NodeImpl extends PeerConnectionDelegate implements Node {
         getUnSyncNum(),
         blockWaitToProc.size(),
         blockJustReceived.size(),
-        syncBlockIdWeRequested.size(),
-        badAdvObj.size()
+        syncBlockIdWeRequested.size()
     ));
 
     logger.info(sb.toString());
@@ -705,15 +702,15 @@ public class NodeImpl extends PeerConnectionDelegate implements Node {
 
         peer.getAdvObjSpreadToUs().put(id, System.currentTimeMillis());
         if (!requested[0]) {
-          if (!badAdvObj.containsKey(id)) {
-            if (!advObjToFetch.containsKey(id)) {
-              fetchWaterLine.increase();
-              this.advObjToFetch.put(id, new PriorItem(new Item(id, msg.getInventoryType()),
-                  fetchSequenceCounter.incrementAndGet()));
-            } else {
-              //another peer tell this trx to us, refresh its time.
-              this.advObjToFetch.get(id).refreshTime();
-            }
+          PriorItem targetPriorItem = this.advObjToFetch.get(id);
+
+          if (targetPriorItem != null) {
+            //another peer tell this trx to us, refresh its time.
+            targetPriorItem.refreshTime();
+          } else {
+            fetchWaterLine.increase();
+            this.advObjToFetch.put(id, new PriorItem(new Item(id, msg.getInventoryType()),
+                fetchSequenceCounter.incrementAndGet()));
           }
         }
       }
@@ -795,13 +792,16 @@ public class NodeImpl extends PeerConnectionDelegate implements Node {
       } catch (BadBlockException e) {
         logger.error("We get a bad block {}, from {}, reason is {} ",
             block.getBlockId().getString(), peer.getNode().getHost(), e.getMessage());
-        badAdvObj.put(block.getBlockId(), System.currentTimeMillis());
         disconnectPeer(peer, ReasonCode.BAD_BLOCK);
       } catch (UnLinkedBlockException e) {
         logger.error("We get a unlinked block {}, from {}, head is {}",
             block.getBlockId().getString(), peer.getNode().getHost(),
             del.getHeadBlockId().getString());
         startSyncWithPeer(peer);
+      } catch (NonCommonBlockException e) {
+        logger.error("We get a block {} that do not have the most recent common ancestor with the main chain, from {}, reason is {} ",
+            block.getBlockId().getString(), peer.getNode().getHost(), e.getMessage());
+        disconnectPeer(peer, ReasonCode.FORKED);
       } catch (InterruptedException e) {
         Thread.currentThread().interrupt();
       }
@@ -827,12 +827,16 @@ public class NodeImpl extends PeerConnectionDelegate implements Node {
     } catch (BadBlockException e) {
       logger.error("We get a bad block {}, reason is {} ", block.getBlockId().getString(),
           e.getMessage());
-      badAdvObj.put(block.getBlockId(), System.currentTimeMillis());
       reason = ReasonCode.BAD_BLOCK;
     } catch (UnLinkedBlockException e) {
       logger.error("We get a unlinked block {}, head is {}", block.getBlockId().getString(),
           del.getHeadBlockId().getString());
       reason = ReasonCode.UNLINKABLE;
+    } catch (NonCommonBlockException e) {
+      logger.error("We get a block {} that do not have the most recent common ancestor with the main chain, head is {}",
+          block.getBlockId().getString(),
+          del.getHeadBlockId().getString());
+      reason = ReasonCode.FORKED;
     }
 
     if (!isAccept) {
@@ -888,7 +892,6 @@ public class NodeImpl extends PeerConnectionDelegate implements Node {
       logger.error(e.getMessage());
       banTraitorPeer(peer, ReasonCode.BAD_PROTOCOL);
     } catch (BadTransactionException e) {
-      badAdvObj.put(trxMsg.getMessageId(), System.currentTimeMillis());
       banTraitorPeer(peer, ReasonCode.BAD_TX);
     }
   }
