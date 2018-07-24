@@ -7,6 +7,9 @@ import com.google.protobuf.InvalidProtocolBufferException;
 import java.util.Iterator;
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
+import org.rovak.Logger;
+import org.rovak.events.UnfreezeBalance;
+import org.tron.common.utils.ByteArray;
 import org.tron.common.utils.StringUtil;
 import org.tron.core.Wallet;
 import org.tron.core.capsule.AccountCapsule;
@@ -52,6 +55,9 @@ public class UnfreezeAssetActuator extends AbstractActuator {
           .clearFrozenSupply().addAllFrozenSupply(frozenList).build());
       dbManager.getAccountStore().put(ownerAddress, accountCapsule);
       ret.setStatus(fee, code.SUCESS);
+
+      Logger.LogUnfreeze(new UnfreezeBalance(ByteArray.toHexString(unfreezeAssetContract.getOwnerAddress().toByteArray())), dbManager);
+
     } catch (InvalidProtocolBufferException e) {
       logger.debug(e.getMessage(), e);
       ret.setStatus(fee, code.FAILED);

@@ -1,10 +1,7 @@
 package org.rovak;
 
 import org.apache.commons.io.FileUtils;
-import org.rovak.events.AccountVoted;
-import org.rovak.events.ClaimRewards;
-import org.rovak.events.Event;
-import org.rovak.events.RoundEnded;
+import org.rovak.events.*;
 import org.tron.core.capsule.AccountCapsule;
 import org.tron.core.config.args.Args;
 import org.tron.core.db.Manager;
@@ -32,6 +29,12 @@ public class Logger {
   }
 
   public static void LogClaimRewards(ClaimRewards rewards, Manager dbManager) {
+    rewards.setBlock(dbManager.getHeadBlockNum());
+    rewards.setTimestamp(dbManager.getHeadBlockTimeStamp());
+    Log(rewards);
+  }
+
+  public static void LogUnfreeze(UnfreezeBalance rewards, Manager dbManager) {
     rewards.setBlock(dbManager.getHeadBlockNum());
     rewards.setTimestamp(dbManager.getHeadBlockTimeStamp());
     Log(rewards);
