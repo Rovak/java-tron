@@ -25,6 +25,11 @@ import static org.junit.Assert.assertFalse;
 import com.google.protobuf.Any;
 import com.google.protobuf.ByteString;
 import java.io.File;
+import java.util.Comparator;
+import java.util.List;
+import java.util.stream.Collector;
+import java.util.stream.Collectors;
+
 import lombok.extern.slf4j.Slf4j;
 import org.joda.time.DateTime;
 import org.junit.AfterClass;
@@ -178,7 +183,12 @@ public class WalletTest {
     addBlockToStore(block4);
     block5 = getBuildBlock(BLOCK_TIMESTAMP_FIVE, BLOCK_NUM_FIVE, BLOCK_WITNESS_FIVE,
         ACCOUNT_ADDRESS_FIVE, transaction5, transaction3);
-    addBlockToStore(block5);
+      addBlockToStore(block5);
+    for (int i = 5; i < 9999; i++) {
+      addBlockToStore(block5.toBuilder()
+          .setBlockHeader(block5.getBlockHeader()
+          .toBuilder().setRawData(block5.getBlockHeader().getRawData().toBuilder().setNumber(i).build()).build()).build());
+    }
   }
 
   private static void addBlockToStore(Block block) {
@@ -288,6 +298,44 @@ public class WalletTest {
     Assert.assertTrue("getBlocksByLimit6", blocksByLimit.getBlockList().contains(block3));
     Assert.assertTrue("getBlocksByLimit7", blocksByLimit.getBlockList().contains(block4));
     Assert.assertFalse("getBlocksByLimit8", blocksByLimit.getBlockList().contains(block5));
+  }
+
+  @Test
+  public void getBlocksByLimitMultiThreaded() {
+
+    try {
+
+      int blockSize = 100;
+      for (int i = 1; i < 9000; i += blockSize) {
+        final int start = i;
+        final int end = i + blockSize;
+        new Thread(() -> {
+          try {
+            BlockList blocksByLimit = wallet.getBlocksByLimitNext(start, (end - start) + 1);
+            List<Long> blocks = blocksByLimit.getBlockList().stream().map(b -> b.getBlockHeader().getRawData().getNumber()).collect(Collectors.toList());
+            blocks.sort(Comparator.comparingLong(a -> a));
+
+            if (blocks.size() == 0) {
+              throw new Exception("NO BLOCKS FOR " + start + " => " + end);
+            }
+
+            Long blockStart = blocks.get(0);
+            Long blockEnd = blocks.get(blocks.size() - 1);
+
+            if (blockStart != start || blockEnd != end) {
+              System.out.println("IN  " + start + " => " + end);
+              System.out.println("OUT " + blockStart + " => " + blockEnd);
+            }
+          } catch (Exception e) {
+            e.printStackTrace();
+          }
+
+        }).start(); // <-- changing this to run() will run it in a single thread and complete the test successfully
+      }
+      Thread.sleep(10 * 1000);
+    } catch (InterruptedException e) {
+      e.printStackTrace();
+    }
   }
 
   @Ignore
